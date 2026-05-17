@@ -45,6 +45,8 @@ def init_state():
         "quiz_history": None,
         "chat_history_data": None,
         "quiz_generating": False,
+        "login_loading": False,
+        "signup_loading": False,
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -160,30 +162,44 @@ def login_page():
         with st.form("login_form"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Login")
+            submitted = st.form_submit_button(
+                "Login",
+                disabled=st.session_state.get("login_loading", False)
+            )
 
             if submitted:
+                st.session_state["login_loading"] = True
+                st.session_state["_login_username"] = username
+                st.session_state["_login_password"] = password
+                st.rerun()
+
+        if st.session_state.get("login_loading"):
+            with st.spinner("Logging in..."):
                 r = requests.get(
                     f"{BACKEND_URL}/login",
-                    auth=HTTPBasicAuth(username, password),
+                    auth=HTTPBasicAuth(
+                        st.session_state["_login_username"],
+                        st.session_state["_login_password"],
+                    ),
                 )
-                if r.status_code == 200:
-                    data = r.json()
-                    st.session_state.update({
-                        "authenticated": True,
-                        "username": username,
-                        "password": password,
-                        "role": data["role"],
-                        "grade": data.get("grade", 0),
-                        "page": "app",
-                    })
-                    cookies.set("username", username)
-                    cookies.set("password", password)
-                    cookies.set("role", data["role"])
-                    cookies.set("grade", str(data.get("grade", 0)))
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
+            st.session_state["login_loading"] = False
+            if r.status_code == 200:
+                data = r.json()
+                st.session_state.update({
+                    "authenticated": True,
+                    "username": st.session_state["_login_username"],
+                    "password": st.session_state["_login_password"],
+                    "role": data["role"],
+                    "grade": data.get("grade", 0),
+                    "page": "app",
+                })
+                cookies.set("username", st.session_state["username"])
+                cookies.set("password", st.session_state["password"])
+                cookies.set("role", data["role"])
+                cookies.set("grade", str(data.get("grade", 0)))
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
 
         if st.button("⬅ Back", key="login_back"):
             st.session_state.page = "landing"
@@ -214,31 +230,40 @@ def signup_page():
             if role == "Student":
                 grade = st.number_input("Grade", 1, 12)
 
-            submitted = st.form_submit_button("Create Account")
+            submitted = st.form_submit_button(
+                "Create Account",
+                disabled=st.session_state.get("signup_loading", False)
+            )
 
             if submitted:
-                endpoint = "/signup/student" if role == "Student" else "/signup/teacher"
-                payload = {
+                st.session_state["signup_loading"] = True
+                st.session_state["_signup_payload"] = {
                     "fullname": full_name,
                     "email": email,
                     "username": username,
                     "password": password,
                     "school": school,
                 }
+                st.session_state["_signup_role"] = role
                 if role == "Student":
-                    payload.update({"grade": grade})
+                    st.session_state["_signup_payload"]["grade"] = grade
+                st.rerun()
 
+        if st.session_state.get("signup_loading"):
+            with st.spinner("Creating account..."):
+                _role = st.session_state["_signup_role"]
+                endpoint = "/signup/student" if _role == "Student" else "/signup/teacher"
                 r = requests.post(
                     f"{BACKEND_URL}{endpoint}",
-                    json=payload,
+                    json=st.session_state["_signup_payload"],
                 )
-
-                if r.status_code == 200:
-                    st.success("Account created successfully")
-                    st.session_state.page = "login"
-                    st.rerun()
-                else:
-                    st.error(r.text)
+            st.session_state["signup_loading"] = False
+            if r.status_code == 200:
+                st.success("Account created successfully")
+                st.session_state.page = "login"
+                st.rerun()
+            else:
+                st.error(r.text)
 
         if st.button("⬅ Back"):
             st.session_state.page = "landing"
